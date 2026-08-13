@@ -17,10 +17,32 @@ type ListingResult = {
 type UploadImage = { id: string; file: File; preview: string };
 
 const CONDITIONS = ["New", "Open Box", "Like New", "Good", "Fair", "For Parts / Not Working", "Not Sure"];
-const ATTRIBUTES: Array<[keyof Pick<ItemAnalysis, "itemName" | "category" | "brand" | "model" | "color" | "size" | "material" | "condition">, string]> = [
-  ["itemName", "Item"], ["category", "Category"], ["brand", "Brand"], ["model", "Model"], ["color", "Color"],
-  ["size", "Size"], ["material", "Material"], ["condition", "Condition"],
-];
+type EditableAttribute = keyof Pick<ItemAnalysis, "itemName" | "category" | "brand" | "model" | "color" | "size" | "material" | "condition">;
+type CorrectionField = { source: "attribute"; key: EditableAttribute; label: string } | { source: "specification"; key: string; label: string };
+
+function correctionFields(analysis: ItemAnalysis): CorrectionField[] {
+  const subject = `${analysis.category || ""} ${analysis.itemName || ""}`.toLowerCase();
+  const attributes = (values: Array<[EditableAttribute, string]>): CorrectionField[] => values.map(([key, label]) => ({ source: "attribute", key, label }));
+  const specifications = (labels: string[]): CorrectionField[] => labels.map((label) => ({ source: "specification", key: label, label }));
+  const core = attributes([["itemName", "Item"], ["category", "Category"], ["condition", "Overall condition"]]);
+  let relevant: CorrectionField[];
+  if (/vinyl|record|music|media|\bcd\b|dvd|blu-ray|book/.test(subject)) {
+    relevant = specifications(["Artist", "Album / Title", "Format", "Label", "Edition", "Catalog Number", "Record Size", "Media Condition", "Sleeve Condition"]);
+  } else if (/shoe|sneaker|boot|footwear/.test(subject)) {
+    relevant = [...attributes([["brand", "Brand"], ["model", "Model / Style"], ["size", "Size"], ["color", "Color"], ["material", "Material"]]), ...specifications(["Department", "US Shoe Size", "Width", "Closure"] )];
+  } else if (/clothing|apparel|shirt|jacket|coat|pants|jeans|dress|sweater|hoodie|hat/.test(subject)) {
+    relevant = [...attributes([["brand", "Brand"], ["size", "Size"], ["color", "Color"], ["material", "Material"]]), ...specifications(["Type", "Department", "Size Type", "Style", "Pattern", "Closure"] )];
+  } else if (/electronic|phone|laptop|tablet|camera|headphone|speaker|console|television|\btv\b|monitor|watch/.test(subject)) {
+    relevant = [...attributes([["brand", "Brand"], ["model", "Model"], ["color", "Color"]]), ...specifications(["Storage Capacity", "Connectivity", "Screen Size", "Included Accessories", "Carrier / Compatibility"] )];
+  } else if (/furniture|chair|table|sofa|couch|desk|dresser|cabinet|shelf|bed frame/.test(subject)) {
+    relevant = [...attributes([["brand", "Brand"], ["color", "Color"], ["material", "Material"]]), ...specifications(["Item Type", "Style", "Dimensions", "Assembly", "Room"] )];
+  } else {
+    relevant = attributes([["brand", "Brand"], ["model", "Model"], ["size", "Size"], ["color", "Color"], ["material", "Material"]]);
+  }
+  const included = new Set(relevant.filter((field) => field.source === "specification").map((field) => field.key.toLowerCase()));
+  const detected = analysis.specifications.filter((pair) => !included.has(pair.key.toLowerCase())).map((pair): CorrectionField => ({ source: "specification", key: pair.key, label: pair.key }));
+  return [...core, ...relevant, ...detected];
+}
 const ACCEPTED = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 function makeId() {
@@ -132,6 +154,20 @@ export default function Home() {
     setResult({ ...result, analysis: { ...result.analysis, [key]: value || null } });
   }
 
+  function updateSpecification(key: string, value: string) {
+    if (!result) return;
+    const index = result.analysis.specifications.findIndex((pair) => pair.key.toLowerCase() === key.toLowerCase());
+    const specifications = [...result.analysis.specifications];
+    if (!value.trim()) {
+      if (index >= 0) specifications.splice(index, 1);
+    } else if (index >= 0) {
+      specifications[index] = { key: specifications[index].key, value };
+    } else {
+      specifications.push({ key, value });
+    }
+    setResult({ ...result, analysis: { ...result.analysis, specifications } });
+  }
+
   async function regenerate() {
     if (!result) return;
     setBusy(true); setError("");
@@ -192,10 +228,13 @@ export default function Home() {
     {result && <section className="results" ref={resultsRef}>
       <div className="results-heading"><div><p className="eyebrow">YOUR LISTING IS READY</p><h2>Review, copy, and sell.</h2></div><div className="heading-actions"><button className="copy-all" onClick={() => copy(allText, "all")}>{copied === "all" ? "✓ Copied!" : "Copy everything"}</button><button className="text-button" onClick={reset}>Start another item</button></div></div>
       {result.warning && <div className="warning"><strong>{result.fallback ? "Basic listing mode" : "Note"}</strong><span>{result.warning}</span></div>}
-      <div className="summary-card"><img src={images[0]?.preview} alt="Main uploaded item" /><div className="summary-content"><span className="summary-kicker">Detected item</span><h3>{result.analysis.itemName || "Unknown item"}</h3><p>{[result.analysis.brand, result.analysis.model, result.analysis.color].filter(Boolean).join(" · ") || "Review the fields below and add what you know."}</p><span className="condition-pill">{result.analysis.condition || "Condition unknown"}</span></div></div>
+      <div className="summary-card"><img src={images[0]?.preview} alt="Main uploaded item" /><div className="summary-content"><span className="summary-kicker">Detected item</span><h3>{result.analysis.itemName || "Unknown item"}</h3><p>{[result.analysis.brand, result.analysis.model, ...result.analysis.specifications.filter((pair) => /^(?:artist|album|title|format)$/i.test(pair.key)).map((pair) => pair.value), result.analysis.color].filter(Boolean).slice(0, 4).join(" · ") || "Review the fields below and add what you know."}</p><span className="condition-pill">{result.analysis.condition || "Condition unknown"}</span></div></div>
       <div className="edit-card">
         <div className="card-title"><div><p className="eyebrow">ITEM DETAILS</p><h3>Check what we found</h3></div><p>Edit anything that’s missing or wrong, then regenerate. Leave fields blank when they do not apply.</p></div>
-        <div className="attribute-grid">{ATTRIBUTES.map(([key, label]) => <label key={key}>{label}<input value={(result.analysis[key] as string | null) ?? ""} onChange={(event) => updateAttribute(key, event.target.value)} placeholder="Unknown / not applicable" /></label>)}</div>
+        <div className="attribute-grid">{correctionFields(result.analysis).map((field) => {
+          const value = field.source === "attribute" ? ((result.analysis[field.key] as string | null) ?? "") : (result.analysis.specifications.find((pair) => pair.key.toLowerCase() === field.key.toLowerCase())?.value ?? "");
+          return <label key={`${field.source}-${field.key}`}>{field.label}<input value={value} onChange={(event) => field.source === "attribute" ? updateAttribute(field.key, event.target.value) : updateSpecification(field.key, event.target.value)} placeholder="Unknown / not applicable" /></label>;
+        })}</div>
         {result.missingInformation.length > 0 && <p className="missing-note">Missing: {result.missingInformation.join(", ")}. Unknown is better than a guess.</p>}
         <button className="update-button" type="button" onClick={regenerate} disabled={busy}>{busy ? "Updating…" : "Regenerate from corrections"}</button>
       </div>
