@@ -49,12 +49,12 @@ export async function POST(request: Request) {
     try {
       const generated = await analyzeImages(images, { itemName, condition, details });
       const analysis = normalizeItemAttributes(generated.analysis, { itemName, condition });
-      return Response.json(buildResult(analysis, generated.listings, false, null));
+      return Response.json(buildResult(analysis, generated.listings, false, null, `${itemName} ${details}`));
     } catch (error) {
       console.error("[SellThis] Gemini analysis failed", error instanceof Error ? error.message : String(error));
       if (!itemName && !details) return Response.json({ error: "We couldn't analyze the photos right now. Add the item name or a few details and try again." }, { status: 503 });
       const analysis = normalizeItemAttributes(fallbackAnalysis(itemName, condition, details), { itemName, condition });
-      return Response.json(buildResult(analysis, deterministicListings(analysis, details), true, "AI image analysis is temporarily unavailable. This basic listing uses only the details you entered."));
+      return Response.json(buildResult(analysis, deterministicListings(analysis, details), true, "AI image analysis is temporarily unavailable. This basic listing uses only the details you entered.", `${itemName} ${details}`));
     }
   } catch { return Response.json({ error: "The upload could not be processed. Please try again." }, { status: 400 }); }
 }

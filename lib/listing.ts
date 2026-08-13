@@ -65,6 +65,13 @@ function clean(value: string | null) {
   return result && !/^(?:unknown|n\/?a|none|not applicable|not available)(?:\s*[—-].*)?$/i.test(result) ? result : null;
 }
 function unique(values: string[]) { return [...new Set(values.map((value) => value.replace(/\s+/g, " ").trim()).filter(Boolean))]; }
+function nonRedundantPhrases(values: string[]) {
+  return unique(values).reduce<string[]>((result, value) => {
+    const normalized = value.toLowerCase();
+    if (result.some((existing) => existing.toLowerCase().includes(normalized))) return result;
+    return [...result.filter((existing) => !normalized.includes(existing.toLowerCase())), value];
+  }, []);
+}
 
 function smartCapitalize(value: string) {
   const trimmed = value.replace(/\s+/g, " ").trim();
@@ -98,7 +105,7 @@ export function generateSearchQuery(analysis: ItemAnalysis) {
     : /electronic|phone|laptop|tablet|camera|headphone|console/.test(subject)
       ? [specific.get("storage capacity"), specific.get("capacity"), specific.get("connectivity")]
       : [];
-  const query = unique([analysis.brand, analysis.model, analysis.itemName, ...categoryTerms, analysis.size, analysis.color, analysis.condition === "New" ? "new" : "used"].filter((value): value is string => Boolean(value))).join(" ");
+  const query = nonRedundantPhrases([analysis.brand, analysis.model, analysis.itemName, ...categoryTerms, analysis.size, analysis.color, analysis.condition === "New" ? "new" : "used"].filter((value): value is string => Boolean(value))).join(" ");
   return query || "used item comparable listings";
 }
 
@@ -134,7 +141,7 @@ Seller item name: ${itemName || "Not supplied"}
 Seller condition: ${condition || "Not Sure"}
 Seller notes: ${details || "Not supplied"}
 
-Analyze the same physical item across all images, then produce the required JSON. User-supplied facts take priority. Read clear labels, packaging, tags, model plates, and printed text. Use null when an attribute is not visible or supplied. Never infer or fabricate a model number, authenticity, exact dimensions, material, age, warranty, technical specification, history, original retail price, or hidden condition. Only describe defects actually visible in the images or explicitly provided. Do not treat ordinary black vinyl as a meaningful color attribute unless it is a special colored pressing. Descriptive language must be restrained and factual.
+Analyze the same physical item across all images, then produce the required JSON. User-supplied facts take priority. Read clear labels, packaging, tags, model plates, and printed text. Use null when an attribute is not visible or supplied. Never infer or fabricate a model number, authenticity, exact dimensions, material, age, warranty, technical specification, history, original retail price, or hidden condition. A selected cosmetic condition does not prove that an electronic or mechanical item works: never say working, functional, tested, or powers on unless the seller explicitly said so. Never use "vintage" or turn a depicted historical subject into a manufacturing era unless visible text or the seller supports that claim. Only describe defects actually visible in the images or explicitly provided. Do not treat ordinary black vinyl as a meaningful color attribute unless it is a special colored pressing. Descriptive language must be restrained and factual.
 
 Choose a specific category and put category-appropriate facts in specifications. For records/media, prefer Artist, Album/Title, Format, Label, Edition, Catalog Number, Record Size, Media Condition, and Sleeve Condition. For clothing, prefer Type, Department, Size Type, Style, Pattern, and Closure. For shoes, prefer Department, US Shoe Size, Style, Width, and Closure. For electronics, prefer Storage Capacity, Connectivity, Screen Size, Included Accessories, and Carrier/Compatibility. For furniture, prefer Item Type, Style, Dimensions, Assembly, and Room. Include a specification only when visible or seller-supplied; do not output blank, Unknown, N/A, or guessed values.
 
@@ -171,7 +178,7 @@ export async function generateMarketplaceListings(analysis: ItemAnalysis, detail
   return validateListings(output);
 }
 
-export function buildResult(analysis: ItemAnalysis, listings: Listings, fallback: boolean, warning: string | null): ListingResult {
+export function buildResult(analysis: ItemAnalysis, listings: Listings, fallback: boolean, warning: string | null, sellerEvidence = ""): ListingResult {
   const subject = `${analysis.category || ""} ${analysis.itemName || ""}`.toLowerCase();
   const relevant = /shoe|sneaker|boot|clothing|apparel|shirt|jacket|pants|dress/.test(subject)
     ? (["itemName", "brand", "size", "color"] as const)
@@ -182,10 +189,24 @@ export function buildResult(analysis: ItemAnalysis, listings: Listings, fallback
         : (["itemName"] as const);
   const labels = { itemName: "item name", brand: "brand", model: "model", size: "size", color: "color", material: "material" } as const;
   const missingInformation = relevant.filter((key) => !analysis[key]).map((key) => labels[key]);
+  const functionClaimSupported = /\b(?:work(?:s|ing)?|functional|tested|powers? on)\b/i.test(sellerEvidence);
+  const ageClaimSupported = /\bvintage\b/i.test(sellerEvidence);
+  const cleanCopy = (value: string) => {
+    let result = value;
+    if (!functionClaimSupported) result = result
+      .replace(/\bin (good|excellent|full|perfect) working condition\b/gi, "in $1 condition")
+      .replace(/\b(?:fully\s+)?functional\s+/gi, "")
+      .replace(/\btested and (?:working|functional)\b/gi, "")
+      .replace(/\bworks (?:perfectly|well|as expected)\b/gi, "");
+    if (!ageClaimSupported) result = result.replace(/\bvintage\b/gi, "");
+    result = result.replace(/\s+([,.])/g, "$1").replace(/\s+/g, " ").trim();
+    return result ? result[0].toUpperCase() + result.slice(1) : result;
+  };
   const normalizeListing = <T extends Listing>(listing: T): T => ({
     ...listing,
-    title: smartCapitalize(listing.title.replace(/\b(?:N\/?A|Unknown)(?:\s*[—-][^,|]*)?\b/gi, "").replace(/\s+/g, " ").trim()),
-    keyDetails: unique(listing.keyDetails.filter((detail) => !/^(?:unknown|n\/?a|none|not applicable)/i.test(detail))),
+    title: smartCapitalize(cleanCopy(listing.title.replace(/\b(?:N\/?A|Unknown)(?:\s*[—-][^,|]*)?\b/gi, ""))),
+    description: cleanCopy(listing.description),
+    keyDetails: unique(listing.keyDetails.map(cleanCopy).filter((detail) => detail && !/^(?:unknown|n\/?a|none|not applicable)/i.test(detail))),
   });
   const normalizedListings: Listings = {
     general: normalizeListing(listings.general),
