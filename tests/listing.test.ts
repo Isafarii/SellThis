@@ -31,12 +31,24 @@ test("normalization prefers supplied facts and preserves unknowns as null", () =
   assert.equal(normalized.brand, null);
 });
 
+test("normalization treats placeholder values as unknown", () => {
+  const normalized = normalizeItemAttributes({ ...analysis,
+    brand: "N/A",
+    model: "Not applicable",
+    size: "Unknown — please enter",
+  });
+  assert.equal(normalized.brand, null);
+  assert.equal(normalized.model, null);
+  assert.equal(normalized.size, null);
+  assert.equal(deterministicListings(normalized).general.title.includes("N/A"), false);
+});
+
 test("deterministic fallback, missing fields, and search query work", () => {
   assert.match(listings.facebook.description, /Worn twice/);
   assert.ok(listings.ebay.title.length <= 80);
   assert.equal(generateSearchQuery(analysis), "Nike Air Max Air Max shoes 11 Black used");
   const result = buildResult(analysis, listings, true, "fallback");
-  assert.deepEqual(result.missingInformation, ["material"]);
+  assert.deepEqual(result.missingInformation, []);
 });
 
 test("Gemini request sends images and accepts only validated structured JSON", async () => {

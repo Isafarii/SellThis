@@ -60,7 +60,10 @@ export function validateGeminiResult(value: unknown): { analysis: ItemAnalysis; 
   return { analysis: validateItemAnalysis(value.analysis), listings: validateListings(value.listings) };
 }
 
-function clean(value: string | null) { const result = value?.replace(/\s+/g, " ").trim(); return result && !/^unknown$/i.test(result) ? result : null; }
+function clean(value: string | null) {
+  const result = value?.replace(/\s+/g, " ").trim();
+  return result && !/^(?:unknown|n\/?a|none|not applicable|not available)(?:\s*[—-].*)?$/i.test(result) ? result : null;
+}
 function unique(values: string[]) { return [...new Set(values.map((value) => value.replace(/\s+/g, " ").trim()).filter(Boolean))]; }
 
 export function normalizeItemAttributes(analysis: ItemAnalysis, supplied: { itemName?: string; condition?: string } = {}): ItemAnalysis {
@@ -123,7 +126,10 @@ async function callGemini(input: Array<Record<string, unknown>>, schema: object,
     body: JSON.stringify({ contents: [{ role: "user", parts: input }], generationConfig: { thinkingConfig: { thinkingLevel: "minimal" }, responseFormat: { text: { mimeType: "application/json", schema } } } }),
     signal: AbortSignal.timeout(45_000),
   });
-  if (!response.ok) throw new Error(`Gemini request failed (${response.status})`);
+  if (!response.ok) {
+    const detail = (await response.text()).replace(/\s+/g, " ").slice(0, 500);
+    throw new Error(`Gemini request failed (${response.status})${detail ? `: ${detail}` : ""}`);
+  }
   const payload = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
   const text = payload.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("");
   if (!text) throw new Error("Gemini returned no structured output");
@@ -144,7 +150,16 @@ export async function generateMarketplaceListings(analysis: ItemAnalysis, detail
 }
 
 export function buildResult(analysis: ItemAnalysis, listings: Listings, fallback: boolean, warning: string | null): ListingResult {
-  const missingInformation = (["itemName", "brand", "model", "size", "color", "material"] as const).filter((key) => !analysis[key]).map((key) => ({ itemName: "item name", brand: "brand", model: "model", size: "size", color: "color", material: "material" })[key]);
+  const subject = `${analysis.category || ""} ${analysis.itemName || ""}`.toLowerCase();
+  const relevant = /shoe|sneaker|boot|clothing|apparel|shirt|jacket|pants|dress/.test(subject)
+    ? (["itemName", "brand", "size", "color"] as const)
+    : /electronic|phone|laptop|tablet|camera|headphone|console|television|\btv\b/.test(subject)
+      ? (["itemName", "brand", "model"] as const)
+      : /furniture|chair|table|sofa|desk/.test(subject)
+        ? (["itemName", "material", "color"] as const)
+        : (["itemName"] as const);
+  const labels = { itemName: "item name", brand: "brand", model: "model", size: "size", color: "color", material: "material" } as const;
+  const missingInformation = relevant.filter((key) => !analysis[key]).map((key) => labels[key]);
   return { analysis, listings, searchQuery: generateSearchQuery(analysis), missingInformation, fallback, warning };
 }
 

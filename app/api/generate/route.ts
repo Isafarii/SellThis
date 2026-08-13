@@ -23,7 +23,11 @@ function matchesMagic(bytes: Uint8Array, mime: string) {
 }
 function fallbackAnalysis(itemName: string, condition: string, details: string): ItemAnalysis {
   const size = details.match(/\bsize\s*[:#-]?\s*([0-9]{1,2}(?:\.[05])?)\b/i)?.[1] || null;
-  return { itemName: itemName || null, category: null, brand: null, model: null, color: null, size, material: null, condition: condition === "Not Sure" ? null : condition, specifications: [], features: [], visibleDefects: [], keywords: itemName ? itemName.split(/\s+/).slice(0, 8) : [] };
+  const category = /\b(vinyl|record|lp)\b/i.test(itemName) ? "Vinyl record"
+    : /\b(shoe|sneaker|boot)s?\b/i.test(itemName) ? "Shoes"
+    : /\b(phone|laptop|tablet|camera|headphones?|console)\b/i.test(itemName) ? "Electronics"
+    : null;
+  return { itemName: itemName || null, category, brand: null, model: null, color: null, size, material: null, condition: condition === "Not Sure" ? null : condition, specifications: [], features: [], visibleDefects: [], keywords: itemName ? itemName.split(/\s+/).slice(0, 8) : [] };
 }
 
 export async function POST(request: Request) {
@@ -46,7 +50,8 @@ export async function POST(request: Request) {
       const generated = await analyzeImages(images, { itemName, condition, details });
       const analysis = normalizeItemAttributes(generated.analysis, { itemName, condition });
       return Response.json(buildResult(analysis, generated.listings, false, null));
-    } catch {
+    } catch (error) {
+      console.error("[SellThis] Gemini analysis failed", error instanceof Error ? error.message : String(error));
       if (!itemName && !details) return Response.json({ error: "We couldn't analyze the photos right now. Add the item name or a few details and try again." }, { status: 503 });
       const analysis = normalizeItemAttributes(fallbackAnalysis(itemName, condition, details), { itemName, condition });
       return Response.json(buildResult(analysis, deterministicListings(analysis, details), true, "AI image analysis is temporarily unavailable. This basic listing uses only the details you entered."));

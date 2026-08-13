@@ -194,8 +194,8 @@ export default function Home() {
       {result.warning && <div className="warning"><strong>{result.fallback ? "Basic listing mode" : "Note"}</strong><span>{result.warning}</span></div>}
       <div className="summary-card"><img src={images[0]?.preview} alt="Main uploaded item" /><div className="summary-content"><span className="summary-kicker">Detected item</span><h3>{result.analysis.itemName || "Unknown item"}</h3><p>{[result.analysis.brand, result.analysis.model, result.analysis.color].filter(Boolean).join(" · ") || "Review the fields below and add what you know."}</p><span className="condition-pill">{result.analysis.condition || "Condition unknown"}</span></div></div>
       <div className="edit-card">
-        <div className="card-title"><div><p className="eyebrow">ITEM DETAILS</p><h3>Check what we found</h3></div><p>Edit anything that’s missing or wrong, then regenerate.</p></div>
-        <div className="attribute-grid">{ATTRIBUTES.map(([key, label]) => <label key={key}>{label}<input value={(result.analysis[key] as string | null) ?? ""} onChange={(event) => updateAttribute(key, event.target.value)} placeholder="Unknown — please enter" /></label>)}</div>
+        <div className="card-title"><div><p className="eyebrow">ITEM DETAILS</p><h3>Check what we found</h3></div><p>Edit anything that’s missing or wrong, then regenerate. Leave fields blank when they do not apply.</p></div>
+        <div className="attribute-grid">{ATTRIBUTES.map(([key, label]) => <label key={key}>{label}<input value={(result.analysis[key] as string | null) ?? ""} onChange={(event) => updateAttribute(key, event.target.value)} placeholder="Unknown / not applicable" /></label>)}</div>
         {result.missingInformation.length > 0 && <p className="missing-note">Missing: {result.missingInformation.join(", ")}. Unknown is better than a guess.</p>}
         <button className="update-button" type="button" onClick={regenerate} disabled={busy}>{busy ? "Updating…" : "Regenerate from corrections"}</button>
       </div>
