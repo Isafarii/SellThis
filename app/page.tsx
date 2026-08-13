@@ -27,7 +27,18 @@ function correctionFields(analysis: ItemAnalysis): CorrectionField[] {
   const core = attributes([["itemName", "Item"], ["category", "Category"], ["condition", "Overall condition"]]);
   let relevant: CorrectionField[];
   if (/vinyl|record|music|media|\bcd\b|dvd|blu-ray|book/.test(subject)) {
-    relevant = specifications(["Artist", "Album / Title", "Format", "Label", "Edition", "Catalog Number", "Record Size", "Media Condition", "Sleeve Condition"]);
+    const mediaSpecification = (label: string, aliases = [label]): CorrectionField => {
+      const existing = analysis.specifications.find((pair) => aliases.some((alias) => alias.toLowerCase() === pair.key.toLowerCase()));
+      return { source: "specification", key: existing?.key || label, label };
+    };
+    const labelField: CorrectionField = analysis.specifications.some((pair) => pair.key.toLowerCase() === "label") || !analysis.brand
+      ? mediaSpecification("Label")
+      : { source: "attribute", key: "brand", label: "Label / Publisher" };
+    relevant = [
+      mediaSpecification("Artist"), mediaSpecification("Album / Title", ["Album / Title", "Album", "Title"]),
+      mediaSpecification("Format"), labelField, mediaSpecification("Edition"), mediaSpecification("Catalog Number"),
+      mediaSpecification("Record Size"), mediaSpecification("Media Condition"), mediaSpecification("Sleeve Condition"),
+    ];
   } else if (/shoe|sneaker|boot|footwear/.test(subject)) {
     relevant = [...attributes([["brand", "Brand"], ["model", "Model / Style"], ["size", "Size"], ["color", "Color"], ["material", "Material"]]), ...specifications(["Department", "US Shoe Size", "Width", "Closure"] )];
   } else if (/clothing|apparel|shirt|jacket|coat|pants|jeans|dress|sweater|hoodie|hat/.test(subject)) {
