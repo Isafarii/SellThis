@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   analyzeImages, buildResult, deterministicListings, generateSearchQuery, normalizeItemAttributes,
-  validateGeminiResult, validateItemAnalysis, validateListings, type ItemAnalysis,
+  fullSchema, validateGeminiResult, validateItemAnalysis, validateListings, type ItemAnalysis,
 } from "../lib/listing.ts";
 
 const analysis: ItemAnalysis = {
@@ -61,7 +61,8 @@ test("Gemini request sends images and accepts only validated structured JSON", a
   assert.equal(result.analysis.brand, "Nike");
   const sent = JSON.parse(requestBody);
   assert.equal(sent.contents[0].parts[1].inlineData.mimeType, "image/png");
-  assert.equal(sent.generationConfig.responseFormat.text.mimeType, "application/json");
+  assert.equal(sent.generationConfig.responseMimeType, "application/json");
+  assert.deepEqual(sent.generationConfig.responseJsonSchema, fullSchema);
   assert.equal(requestBody.includes("test-key"), false);
 });
 

@@ -123,7 +123,7 @@ async function callGemini(input: Array<Record<string, unknown>>, schema: object,
   const model = process.env.GEMINI_MODEL || "gemini-3.1-flash-lite";
   const response = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: "POST", headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
-    body: JSON.stringify({ contents: [{ role: "user", parts: input }], generationConfig: { thinkingConfig: { thinkingLevel: "minimal" }, responseFormat: { text: { mimeType: "application/json", schema } } } }),
+    body: JSON.stringify({ contents: [{ role: "user", parts: input }], generationConfig: { thinkingConfig: { thinkingLevel: "minimal" }, responseMimeType: "application/json", responseJsonSchema: schema } }),
     signal: AbortSignal.timeout(45_000),
   });
   if (!response.ok) {
