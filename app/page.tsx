@@ -56,6 +56,7 @@ function correctionFields(analysis: ItemAnalysis): CorrectionField[] {
 }
 const ACCEPTED = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const SUPPORT_URL = process.env.NEXT_PUBLIC_SUPPORT_URL || "";
 function makeId() {
   const bytes = new Uint32Array(2);
   crypto.getRandomValues(bytes);
@@ -88,8 +89,9 @@ async function optimizeImage(file: File): Promise<File> {
   return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".webp", { type: "image/webp" });
 }
 
-function listingToText(label: string, listing: Listing, specifics?: Pair[]) {
+function listingToText(label: string, listing: Listing, specifics?: Pair[], askingPrice = "") {
   const lines = [label, listing.title, "", listing.description, "", `Condition: ${listing.condition}`];
+  if (askingPrice.trim()) lines.push(`Price: ${askingPrice.trim()}`);
   if (listing.keyDetails.length) lines.push("", ...listing.keyDetails.map((detail) => `• ${detail}`));
   if (specifics?.length) lines.push("", "Item specifics", ...specifics.map((item) => `${item.key}: ${item.value}`));
   return lines.join("\n");
@@ -100,6 +102,7 @@ export default function Home() {
   const [itemName, setItemName] = useState("");
   const [condition, setCondition] = useState("Not Sure");
   const [details, setDetails] = useState("");
+  const [askingPrice, setAskingPrice] = useState("");
   const [result, setResult] = useState<ListingResult | null>(null);
   const [activeTab, setActiveTab] = useState<"facebook" | "ebay" | "offerup" | "general">("facebook");
   const [busy, setBusy] = useState(false);
@@ -112,11 +115,11 @@ export default function Home() {
   const currentListing = result?.listings[activeTab];
   const allText = useMemo(() => result ? [
     listingToText("GENERAL LISTING", result.listings.general),
-    listingToText("FACEBOOK MARKETPLACE", result.listings.facebook),
-    listingToText("EBAY", result.listings.ebay, result.listings.ebay.itemSpecifics),
-    listingToText("OFFERUP / CRAIGSLIST", result.listings.offerup),
+    listingToText("FACEBOOK MARKETPLACE", result.listings.facebook, undefined, askingPrice),
+    listingToText("EBAY", result.listings.ebay, result.listings.ebay.itemSpecifics, askingPrice),
+    listingToText("OFFERUP / CRAIGSLIST", result.listings.offerup, undefined, askingPrice),
     `PRICE RESEARCH\n${result.searchQuery}`,
-  ].join("\n\n--------------------\n\n") : "", [result]);
+  ].join("\n\n--------------------\n\n") : "", [result, askingPrice]);
 
   async function addFiles(files: File[]) {
     setUploadError("");
@@ -198,7 +201,7 @@ export default function Home() {
 
   function reset() {
     images.forEach((image) => URL.revokeObjectURL(image.preview));
-    setImages([]); setItemName(""); setCondition("Not Sure"); setDetails(""); setResult(null);
+    setImages([]); setItemName(""); setCondition("Not Sure"); setDetails(""); setAskingPrice(""); setResult(null);
     setError(""); setUploadError(""); setCopied(""); window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -207,6 +210,16 @@ export default function Home() {
     ["eBay", `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(result.searchQuery)}`],
     ["Facebook", `https://www.facebook.com/marketplace/search/?query=${encodeURIComponent(result.searchQuery)}`],
   ] : [];
+  const marketplaceHandoff = activeTab === "facebook" ? {
+    note: "Copy the fields above, then review and publish on Facebook Marketplace.",
+    links: [["Open Facebook Marketplace", "https://www.facebook.com/marketplace/create/item"]],
+  } : activeTab === "ebay" ? {
+    note: "Copy the listing and item specifics above, then complete eBay’s price, shipping, and policy fields.",
+    links: [["Continue on eBay", "https://www.ebay.com/sl/sell"]],
+  } : activeTab === "offerup" ? {
+    note: "OfferUp item posting continues in its mobile app. Craigslist uses its normal web posting flow.",
+    links: [["Open OfferUp", "https://offerup.com/"], ["Open Craigslist posting", "https://post.craigslist.org/"]],
+  } : null;
 
   return <main>
     <header className="topbar"><a href="#top" className="wordmark">SellThis<span>.</span></a><span className="quiet-badge">Private by design</span></header>
@@ -256,12 +269,14 @@ export default function Home() {
           <div className="field-block"><div className="field-heading"><span>Description</span><button onClick={() => copy(currentListing.description, "description")}>{copied === "description" ? "✓ Copied" : "Copy"}</button></div><p className="listing-description">{currentListing.description}</p></div>
           {currentListing.keyDetails.length > 0 && <div className="field-block"><div className="field-heading"><span>Key details</span><button onClick={() => copy(currentListing.keyDetails.join("\n"), "details")}>{copied === "details" ? "✓ Copied" : "Copy"}</button></div><ul>{currentListing.keyDetails.map((detail) => <li key={detail}>{detail}</li>)}</ul></div>}
           {activeTab === "ebay" && result.listings.ebay.itemSpecifics.length > 0 && <div className="field-block"><div className="field-heading"><span>Item specifics</span><button onClick={() => copy(result.listings.ebay.itemSpecifics.map((item) => `${item.key}: ${item.value}`).join("\n"), "specifics")}>{copied === "specifics" ? "✓ Copied" : "Copy"}</button></div><dl>{result.listings.ebay.itemSpecifics.map((item) => <div key={item.key}><dt>{item.key}</dt><dd>{item.value}</dd></div>)}</dl></div>}
-          <button className="copy-listing" onClick={() => copy(listingToText(activeTab.toUpperCase(), currentListing, activeTab === "ebay" ? result.listings.ebay.itemSpecifics : undefined), "listing")}>{copied === "listing" ? "✓ Listing copied" : "Copy full listing"}</button>
+          {activeTab !== "general" && <div className="field-block price-input-block"><div className="field-heading"><span>Your asking price</span><button disabled={!askingPrice.trim()} onClick={() => copy(askingPrice.trim(), "price")}>{copied === "price" ? "✓ Copied" : "Copy"}</button></div><input inputMode="decimal" value={askingPrice} onChange={(event) => setAskingPrice(event.target.value.slice(0, 30))} placeholder="Enter a price after checking comparable listings" aria-label="Your asking price" /></div>}
+          <button className="copy-listing" onClick={() => copy(listingToText(activeTab.toUpperCase(), currentListing, activeTab === "ebay" ? result.listings.ebay.itemSpecifics : undefined, askingPrice), "listing")}>{copied === "listing" ? "✓ Listing copied" : "Copy full listing"}</button>
+          {marketplaceHandoff && <div className="handoff"><div><span>Ready to post</span><p>{marketplaceHandoff.note}</p></div><div className="handoff-actions">{marketplaceHandoff.links.map(([label, href]) => <a key={label} href={href} target="_blank" rel="noreferrer">{label} <span>↗</span></a>)}</div></div>}
         </div>}
       </div>
       <div className="price-card"><div><p className="eyebrow">PRICE RESEARCH</p><h3>Check what it’s selling for</h3><p>We don’t invent prices. Use this focused search to compare similar listings.</p><code>{result.searchQuery}</code></div><div className="search-actions">{searchLinks.map(([label, href]) => <a key={label} href={href} target="_blank" rel="noreferrer">Search {label} <span>↗</span></a>)}</div></div>
       <div className="bottom-action"><button className="primary-button" onClick={reset}>Start another item <span>→</span></button></div>
     </section>}
-    <footer><span>SellThis.</span><p>Photos in. Listings out. Nothing saved.</p></footer>
+    <footer><div><span>SellThis.</span><p>Photos in. Listings out. Nothing saved.</p></div>{SUPPORT_URL && <div className="support"><p>SellThis is free. If it saved you time, you can help keep it running.</p><a href={SUPPORT_URL} target="_blank" rel="noreferrer">♡ Support SellThis</a></div>}</footer>
   </main>;
 }
